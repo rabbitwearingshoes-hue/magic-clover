@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Memo</title>
+<link rel="stylesheet" href="/stage.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #111; color: #eee; font-family: -apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif; }
+  main { max-width: 480px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 15px; font-weight: 600; color: #888; margin: 0 0 16px; }
+  label { display: block; font-size: 13px; color: #999; margin: 14px 0 6px; }
+  input {
+    width: 100%; font-size: 22px; padding: 14px; border-radius: 12px;
+    border: 1px solid #333; background: #1b1b1b; color: #fff; outline: none;
+  }
+  input:focus { border-color: #e6b36a; }
+  .row { display: flex; gap: 10px; margin-top: 18px; }
+  button {
+    flex: 1; font-size: 18px; padding: 16px; border-radius: 12px; border: 0;
+    font-weight: 600; cursor: pointer;
+  }
+  #apply { background: #e6b36a; color: #1a1200; }
+  #reset { background: #2a2a2a; color: #ddd; flex: 0 0 34%; }
+  #status { margin-top: 14px; font-size: 14px; min-height: 20px; color: #8bd48b; }
+  #status.err { color: #ff8a8a; }
+  .preview-h { margin: 26px 0 8px; font-size: 13px; color: #777; }
+  .preview { border: 1px solid #2a2a2a; border-radius: 10px; overflow: hidden; }
+  #keybox { display: none; }
+  small { color: #666; display: block; margin-top: 10px; line-height: 1.5; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>메모</h1>
+
+  <div id="keybox">
+    <label for="key">비밀번호</label>
+    <input id="key" type="password" autocomplete="off">
+    <div class="row"><button id="keyok" style="background:#2a2a2a;color:#ddd">확인</button></div>
+  </div>
+
+  <div id="panel">
+    <label for="name">관객 이름</label>
+    <input id="name" type="text" maxlength="20" autocomplete="off" autocapitalize="off" enterkeyhint="next">
+
+    <label for="num">숫자 (1~45)</label>
+    <input id="num" type="number" inputmode="numeric" min="1" max="45" autocomplete="off" enterkeyhint="done">
+
+    <div class="row">
+      <button id="apply">적용</button>
+      <button id="reset">초기화</button>
+    </div>
+    <div id="status"></div>
+
+    <div class="preview-h">관객 화면 미리보기 (입력하면 바로 반영)</div>
+    <div class="preview"><div id="pv"></div></div>
+    <small>적용하면 관객 폰은 다시 열거나 새로고침할 때 사진이 바뀝니다. 초기화하면 다시 첫 번째 사진으로 돌아갑니다.</small>
+  </div>
+</main>
+
+<script src="/stage.js"></script>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var room = q.get('r') || 'default';
+  var $ = function (id) { return document.getElementById(id); };
+  var key = localStorage.getItem('adminKey') || '';
+
+  var parts = Stage.build($('pv'));
+  Stage.show(parts, { revealed: false });
+
+  function status(msg, err) {
+    var s = $('status');
+    s.textContent = msg;
+    s.className = err ? 'err' : '';
+  }
+
+  function api(path, body) {
+    return fetch(path + '?r=' + encodeURIComponent(room), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Key': key },
+      body: JSON.stringify(body || {}),
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, status: r.status, data: j }; });
+    });
+  }
+
+  function needKey(msg) {
+    $('keybox').style.display = 'block';
+    $('panel').style.display = 'none';
+    if (msg) alert(msg);
+    $('key').focus();
+  }
+
+  function preview() {
+    var name = $('name').value.trim();
+    var n = parseInt($('num').value, 10);
+    if (name && n >= 1 && n <= 45) {
+      Stage.show(parts, { revealed: true, name: name, number: n });
+    } else {
+      Stage.show(parts, { revealed: false });
+    }
+  }
+  $('name').addEventListener('input', preview);
+  $('num').addEventListener('input', preview);
+
+  function apply() {
+    var name = $('name').value.trim();
+    var n = parseInt($('num').value, 10);
+    if (!name) return status('이름을 입력하세요', true);
+    if (!(n >= 1 && n <= 45)) return status('숫자는 1~45 사이로 입력하세요', true);
+    api('/api/set', { name: name, number: n }).then(function (r) {
+      if (r.status === 401) return needKey('비밀번호가 맞지 않습니다');
+      if (!r.ok) return status(r.data.error || '오류', true);
+      status('적용됨 ✓  ' + name + ' / ' + n);
+      if (navigator.vibrate) navigator.vibrate(30);
+    }).catch(function () { status('서버에 연결할 수 없습니다', true); });
+  }
+
+  $('apply').addEventListener('click', apply);
+  $('name').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('num').focus(); });
+  $('num').addEventListener('keydown', function (e) { if (e.key === 'Enter') apply(); });
+
+  $('reset').addEventListener('click', function () {
+    api('/api/reset').then(function (r) {
+      if (r.status === 401) return needKey('비밀번호가 맞지 않습니다');
+      $('name').value = '';
+      $('num').value = '';
+      preview();
+      status('초기화됨 · 관객 화면은 첫 사진으로 돌아갑니다');
+    }).catch(function () { status('서버에 연결할 수 없습니다', true); });
+  });
+
+  $('keyok').addEventListener('click', function () {
+    key = $('key').value;
+    api('/api/check').then(function (r) {
+      if (!r.ok) return alert('비밀번호가 맞지 않습니다');
+      localStorage.setItem('adminKey', key);
+      $('keybox').style.display = 'none';
+      $('panel').style.display = 'block';
+      $('name').focus();
+    });
+  });
+
+  // 처음 진입 시 저장된 키가 맞는지 확인
+  api('/api/check').then(function (r) {
+    if (!r.ok) needKey();
+  }).catch(function () {});
+})();
+</script>
+</body>
+</html>

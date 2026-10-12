@@ -1,0 +1,13 @@
+{
+  "name": "magic-clover",
+  "version": "1.0.0",
+  "description": "네잎클로버 마술용 웹앱: 관객 이름과 숫자가 사진 속 배너에 나타납니다",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}
