@@ -7,6 +7,19 @@
   container-type: inline-size;
   user-select: none;
   -webkit-user-select: none;
+
+  /* ===== 배너 글씨 조정값 (여기만 고치면 됩니다) =====
+     크기: cqw = 사진 가로폭의 1%
+     기울기: 양수 = 시계 방향 (실제 배너 글씨가 약 6.3° 시계 방향으로 기울어 있음)
+     흐림: stage.js 맨 위의 BLUR 값에서 조정 */
+  --rot: 6.3deg;
+  --name-size: 4cqw;
+  --num-size: 5cqw;
+  --label-size: 1.5cqw;
+  --gold: #d19d66;      /* 이름 색 (배너의 '무료 전시회'와 같은 금색 계열) */
+  --cream: #e6dac8;     /* 숫자 색 (날짜 줄의 베이지 계열) */
+  --ice: #c6d2f4;       /* NUMBER 글씨 색 (아래 '세종문화예술회관'과 같은 연한 푸른 계열) */
+  --ink-opacity: 0.88;
 }
 .stage .photo {
   width: 100%;
@@ -23,35 +36,31 @@
   line-height: 1.15;
   overflow: hidden;
   font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Nanum Gothic', sans-serif;
-  /* 천에 인쇄된 느낌: 아주 살짝 부드럽게 */
-  filter: blur(0.25px);
-  opacity: 0.95;
+  /* 실제 배너 글씨처럼 기울이고, 흐림(filter)은 stage.js가 화면 크기에 맞춰 넣습니다 */
+  transform: rotate(var(--rot));
+  transform-origin: 50% 50%;
+  opacity: var(--ink-opacity);
 }
 .banner-text[hidden] { display: none; }
 .bt-name {
   width: 100%;
   min-width: 0; /* flex 아이템이 글자 길이만큼 늘어나지 않게 해서 폭 맞춤(fit)이 동작하도록 */
-  font-size: 5.6cqw;
+  font-size: var(--name-size);
   font-weight: 500;
-  color: #e6b36a;
+  color: var(--gold);
   white-space: nowrap;
   letter-spacing: 0.02em;
 }
-.bt-rule {
-  width: 22%;
-  height: 0;
-  border-top: 0.25cqw solid rgba(255, 255, 255, 0.55);
-  margin: 2.4cqw 0 2cqw;
-}
 .bt-label {
-  font-size: 1.5cqw;
-  letter-spacing: 0.35em;
-  padding-left: 0.35em;
-  color: rgba(255, 255, 255, 0.85);
+  margin-top: 1.6cqw;
+  font-size: var(--label-size);
+  letter-spacing: 0.3em;
+  padding-left: 0.3em;
+  color: var(--ice);
 }
 .bt-num {
-  font-size: 10cqw;
-  font-weight: 400;
-  color: #fff;
-  margin-top: 0.8cqw;
+  margin-top: 1.4cqw;
+  font-size: var(--num-size);
+  font-weight: 500;
+  color: var(--cream);
 }
