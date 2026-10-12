@@ -22,18 +22,31 @@
   var live = q.get('live') === '1'; // 테스트용: 켜면 2초마다 자동 갱신
   var parts = Stage.build(document.getElementById('app'));
   var app = document.getElementById('app');
-  var last = null;
+  var last = null;      // 마지막으로 받은 상태(문자열)
+  var lastState = null; // 마지막으로 받은 상태(객체)
+
+  function reveal(state) {
+    app.classList.add('ready');
+    if (state && state.revealed) Stage.fit(parts.name);
+  }
+
+  // 화면을 가립니다. 화면이 꺼지거나 앱을 벗어나는 순간에 호출해서,
+  // 다시 돌아왔을 때 옛날 사진이 잠깐 비치지 않게 합니다.
+  function cover() { app.classList.remove('ready'); }
 
   function apply(state) {
     var key = JSON.stringify(state);
-    if (key === last) return;
-    last = key;
-    Stage.show(parts, state);
-    parts.img.onload = function () {
-      app.classList.add('ready');
-      if (state.revealed) Stage.fit(parts.name);
-    };
-    if (parts.img.complete) app.classList.add('ready');
+    if (key !== last) {
+      last = key;
+      lastState = state;
+      Stage.show(parts, state);
+    }
+    var img = parts.img;
+    if (img.complete && img.naturalWidth > 0) {
+      reveal(state);
+    } else {
+      img.onload = function () { reveal(state); };
+    }
   }
 
   function load() {
@@ -43,16 +56,31 @@
       .catch(function () { if (last === null) apply({ revealed: false }); });
   }
 
+  // 서버가 느려도 화면이 계속 까맣게 남지 않도록, 2.5초가 지나면 가진 걸로 보여 줍니다.
+  function refreshCovered() {
+    cover();
+    var timer = setTimeout(function () {
+      if (last === null) apply({ revealed: false });
+      else reveal(lastState);
+    }, 2500);
+    load().then(function () { clearTimeout(timer); });
+  }
+
   // 사진 2를 미리 받아 둬서, 다시 열었을 때 바로 바뀌게 합니다.
   function preload() { var i = new Image(); i.src = '/img2.jpg'; }
 
+  refreshCovered();
   load().then(preload);
 
-  // 화면을 다시 볼 때(앱 전환, 새로고침, 뒤로가기 복귀)마다 한 번만 확인합니다.
+  // 화면이 꺼지거나 다른 앱으로 가면 가리고, 다시 돌아오면 확인이 끝난 뒤에 보여 줍니다.
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible') load();
+    if (document.visibilityState === 'hidden') cover();
+    else refreshCovered();
   });
-  window.addEventListener('pageshow', function (e) { if (e.persisted) load(); });
+  window.addEventListener('pagehide', cover);
+  window.addEventListener('pageshow', function (e) { if (e.persisted) refreshCovered(); });
+  document.addEventListener('freeze', cover);
+  document.addEventListener('resume', refreshCovered);
   window.addEventListener('focus', load);
   if (live) setInterval(load, 2000);
 })();
