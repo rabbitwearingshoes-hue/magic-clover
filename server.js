@@ -8,20 +8,23 @@ const PORT = process.env.PORT || 3000;
 const ADMIN_KEY = process.env.ADMIN_KEY || 'magic';
 // 모든 파일이 한 폴더에 있으므로, 아래 목록의 파일만 밖으로 내보냅니다(server.js 등은 접근 불가).
 const PUBLIC_DIR = __dirname;
-const PUBLIC_FILES = new Set(['index.html', 'admin.html', 'stage.js', 'stage.css', 'img1.jpg', 'img2.jpg']);
+const PUBLIC_FILES = new Set(['index.html', 'admin.html', 'compose.js', 'font.woff', 'img1.jpg', 'img2.jpg']);
 const STATE_FILE = path.join(__dirname, 'state.json');
+const MAX_IMG = 1500000;  // 합성 사진(base64) 최대 약 1.1MB
+const MAX_BODY = 1600000; // 요청 본문 최대 크기
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
+  '.woff': 'font/woff',
   '.jpg': 'image/jpeg',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
 };
 
-// room -> { name, number }. room이 없으면 "default".
+// room -> { name, number, img }. img는 공연자 폰에서 만든 합성 사진(JPEG의 base64). room이 없으면 "default".
 let rooms = {};
 try {
   rooms = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
@@ -55,7 +58,7 @@ function readBody(req) {
     let data = '';
     req.on('data', (c) => {
       data += c;
-      if (data.length > 4096) req.destroy();
+      if (data.length > MAX_BODY) req.destroy();
     });
     req.on('end', () => {
       try {
@@ -95,7 +98,15 @@ const server = http.createServer(async (req, res) => {
 
   if (p === '/api/state' && req.method === 'GET') {
     const s = rooms[roomId(url)];
-    return sendJson(res, 200, s ? { revealed: true, name: s.name, number: s.number } : { revealed: false });
+    return sendJson(res, 200, s ? { revealed: true, name: s.name, number: s.number, v: s.v } : { revealed: false });
+  }
+
+  // 합성된 사진(두 번째 사진)을 내려줍니다. 합성본이 없으면 원본 사진 2를 줍니다.
+  if (p === '/api/photo' && req.method === 'GET') {
+    const s = rooms[roomId(url)];
+    if (!s || !s.img) return serveStatic(res, 'img2.jpg');
+    res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' });
+    return res.end(Buffer.from(s.img, 'base64'));
   }
 
   if (p === '/api/set' && req.method === 'POST') {
@@ -107,7 +118,10 @@ const server = http.createServer(async (req, res) => {
     if (!Number.isInteger(number) || number < 1 || number > 45) {
       return sendJson(res, 400, { error: '숫자는 1~45 사이여야 합니다' });
     }
-    rooms[roomId(url)] = { name, number };
+    // 합성 사진은 JPEG만, 크기 제한 안에서만 받습니다.
+    let img = typeof body.img === 'string' ? body.img.replace(/^data:image\/jpeg;base64,/, '') : '';
+    if (img && (!/^[A-Za-z0-9+/=]+$/.test(img) || img.length > MAX_IMG)) img = '';
+    rooms[roomId(url)] = { name, number, img, v: Date.now() };
     save();
     return sendJson(res, 200, { ok: true });
   }

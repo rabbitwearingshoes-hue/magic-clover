@@ -4,75 +4,80 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Lucky</title>
-<link rel="stylesheet" href="/stage.css">
 <style>
   html, body { margin: 0; background: #000; min-height: 100%; }
   body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
   #app { width: 100%; visibility: hidden; }
   #app.ready { visibility: visible; }
+  #photo { display: block; width: 100%; max-width: 560px; height: auto; margin: 0 auto; }
 </style>
 </head>
 <body>
-<div id="app"></div>
-<script src="/stage.js"></script>
+<div id="app"><img id="photo" alt="" draggable="false"></div>
 <script>
 (function () {
   var q = new URLSearchParams(location.search);
   var room = q.get('r') || 'default';
   var live = q.get('live') === '1'; // 테스트용: 켜면 2초마다 자동 갱신
-  var parts = Stage.build(document.getElementById('app'));
   var app = document.getElementById('app');
-  var last = null;      // 마지막으로 받은 상태(문자열)
-  var lastState = null; // 마지막으로 받은 상태(객체)
+  var img = document.getElementById('photo');
+  var lastState = null;
+  var timer = null;
 
-  function reveal(state) {
-    app.classList.add('ready');
-    if (state && state.revealed) Stage.fit(parts.name);
+  // 글씨는 이미 사진 속에 합성되어 있습니다. 여기서는 사진 한 장만 바꿔서 보여 줍니다.
+  function srcFor(s) {
+    return s && s.revealed ? '/api/photo?r=' + encodeURIComponent(room) + '&v=' + (s.v || 0) : '/img1.jpg';
   }
 
-  // 화면을 가립니다. 화면이 꺼지거나 앱을 벗어나는 순간에 호출해서,
-  // 다시 돌아왔을 때 옛날 사진이 잠깐 비치지 않게 합니다.
-  function cover() { app.classList.remove('ready'); }
+  // 같은 사진을 동시에 두 번 요청하지 않도록, 진행 중인 요청을 공유합니다.
+  var pendingSrc = null, pendingP = null;
+  function show(src) {
+    var cur = img.getAttribute('src');
+    if (cur === src && img.complete && img.naturalWidth > 0) return Promise.resolve();
+    if (pendingSrc === src) return pendingP;
+    pendingSrc = src;
+    pendingP = new Promise(function (resolve) {
+      img.onload = img.onerror = function () {
+        img.onload = img.onerror = null;
+        pendingSrc = pendingP = null;
+        resolve();
+      };
+      if (cur !== src || (img.complete && img.naturalWidth === 0)) img.src = src;
+    });
+    return pendingP;
+  }
+
+  function reveal() { clearTimeout(timer); app.classList.add('ready'); }
+
+  // 화면이 꺼지거나 앱을 벗어나는 순간 사진을 가려서, 돌아왔을 때 옛날 사진이 잠깐 비치지 않게 합니다.
+  function cover() { clearTimeout(timer); app.classList.remove('ready'); }
 
   function apply(state) {
-    var key = JSON.stringify(state);
-    if (key !== last) {
-      last = key;
-      lastState = state;
-      Stage.show(parts, state);
-    }
-    var img = parts.img;
-    if (img.complete && img.naturalWidth > 0) {
-      reveal(state);
-    } else {
-      img.onload = function () { reveal(state); };
-    }
+    lastState = state;
+    return show(srcFor(state)).then(reveal);
   }
 
   function load() {
     return fetch('/api/state?r=' + encodeURIComponent(room), { cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(apply)
-      .catch(function () { if (last === null) apply({ revealed: false }); });
+      .catch(function () {
+        if (lastState === null) return apply({ revealed: false });
+        reveal();
+      });
   }
 
-  // 서버가 느려도 화면이 계속 까맣게 남지 않도록, 2.5초가 지나면 가진 걸로 보여 줍니다.
+  // 확인이 끝나기 전에는 가려 두되, 인터넷이 아주 느려도 화면이 계속 까맣게 남지는 않게 합니다(5초).
   function refreshCovered() {
     cover();
-    var timer = setTimeout(function () {
-      if (last === null) apply({ revealed: false });
-      else reveal(lastState);
-    }, 2500);
-    load().then(function () { clearTimeout(timer); });
+    timer = setTimeout(function () {
+      if (lastState === null) apply({ revealed: false }); else reveal();
+    }, 5000);
+    return load();
   }
 
-  // 사진 2를 미리 받아 둬서, 다시 열었을 때 바로 바뀌게 합니다.
-  function preload() { var i = new Image(); i.src = '/img2.jpg'; }
-
   refreshCovered();
-  load().then(preload);
 
-  // 화면이 꺼지거나 다른 앱으로 가면 가리고, 다시 돌아오면 확인이 끝난 뒤에 보여 줍니다.
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'hidden') cover();
     else refreshCovered();

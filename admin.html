@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
 <title>Memo</title>
-<link rel="stylesheet" href="/stage.css">
 <style>
+  /* 사진에 굽는 글씨용 글꼴. 폰마다 기본 글꼴이 달라서 같은 글꼴 파일을 함께 씁니다. */
+  @font-face { font-family: 'BannerFont'; src: url('/font.woff') format('woff'); font-weight: 500; font-display: block; }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: #111; color: #eee; font-family: -apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif; }
   main { max-width: 480px; margin: 0 auto; padding: 20px 16px 40px; }
@@ -27,7 +28,9 @@
   #status { margin-top: 14px; font-size: 14px; min-height: 20px; color: #8bd48b; }
   #status.err { color: #ff8a8a; }
   .preview-h { margin: 26px 0 8px; font-size: 13px; color: #777; }
-  .preview { border: 1px solid #2a2a2a; border-radius: 10px; overflow: hidden; }
+  .preview { border: 1px solid #2a2a2a; border-radius: 10px; overflow: hidden; line-height: 0; }
+  .preview img { width: 100%; height: auto; display: block; }
+  button:disabled { opacity: .6; }
   #keybox { display: none; }
   small { color: #666; display: block; margin-top: 10px; line-height: 1.5; font-size: 12px; }
 </style>
@@ -56,21 +59,23 @@
     <div id="status"></div>
 
     <div class="preview-h">관객 화면 미리보기 (입력하면 바로 반영)</div>
-    <div class="preview"><div id="pv"></div></div>
+    <div class="preview"><img id="pv" src="/img1.jpg" alt=""></div>
     <small>적용하면 관객 폰은 다시 열거나 새로고침할 때 사진이 바뀝니다. 초기화하면 다시 첫 번째 사진으로 돌아갑니다.</small>
   </div>
 </main>
 
-<script src="/stage.js"></script>
+<script src="/compose.js"></script>
 <script>
 (function () {
   var q = new URLSearchParams(location.search);
   var room = q.get('r') || 'default';
   var $ = function (id) { return document.getElementById(id); };
   var key = localStorage.getItem('adminKey') || '';
+  var busy = false;
 
-  var parts = Stage.build($('pv'));
-  Stage.show(parts, { revealed: false });
+  // 사진 1·2와 글꼴을 미리 받아 두고, 합성 준비도 미리 해 둡니다(첫 입력이 빨라지도록).
+  (new Image()).src = '/img2.jpg';
+  setTimeout(function () { Compose.render('가', 1).catch(function () {}); }, 300);
 
   function status(msg, err) {
     var s = $('status');
@@ -95,29 +100,51 @@
     $('key').focus();
   }
 
+  // 미리보기: 관객이 보게 될 사진(글씨가 구워진 사진)을 그대로 보여 줍니다.
+  var pvUrl = null, pvToken = 0, pvTimer = null;
+  function setPreview(url) {
+    $('pv').src = url;
+    if (pvUrl && pvUrl !== url && pvUrl.indexOf('blob:') === 0) URL.revokeObjectURL(pvUrl);
+    pvUrl = url;
+  }
   function preview() {
+    clearTimeout(pvTimer);
     var name = $('name').value.trim();
     var n = parseInt($('num').value, 10);
-    if (name && n >= 1 && n <= 45) {
-      Stage.show(parts, { revealed: true, name: name, number: n });
-    } else {
-      Stage.show(parts, { revealed: false });
-    }
+    var t = ++pvToken;
+    if (!(name && n >= 1 && n <= 45)) return setPreview('/img1.jpg');
+    pvTimer = setTimeout(function () {
+      Compose.render(name, n).then(function (blob) {
+        if (t === pvToken) setPreview(URL.createObjectURL(blob));
+      }).catch(function () {});
+    }, 250);
   }
   $('name').addEventListener('input', preview);
   $('num').addEventListener('input', preview);
 
   function apply() {
+    if (busy) return;
     var name = $('name').value.trim();
     var n = parseInt($('num').value, 10);
     if (!name) return status('이름을 입력하세요', true);
     if (!(n >= 1 && n <= 45)) return status('숫자는 1~45 사이로 입력하세요', true);
-    api('/api/set', { name: name, number: n }).then(function (r) {
+    busy = true;
+    $('apply').disabled = true;
+    status('사진에 합성하는 중…');
+    Compose.render(name, n).then(Compose.toDataURL).then(function (dataUrl) {
+      status('올리는 중…');
+      return api('/api/set', { name: name, number: n, img: dataUrl });
+    }).then(function (r) {
       if (r.status === 401) return needKey('비밀번호가 맞지 않습니다');
       if (!r.ok) return status(r.data.error || '오류', true);
-      status('적용됨 ✓  ' + name + ' / ' + n);
+      status('적용됨 ✓  ' + name + ' / No.' + n);
       if (navigator.vibrate) navigator.vibrate(30);
-    }).catch(function () { status('서버에 연결할 수 없습니다', true); });
+    }).catch(function () {
+      status('실패했어요. 인터넷 연결을 확인하고 다시 눌러 주세요', true);
+    }).then(function () {
+      busy = false;
+      $('apply').disabled = false;
+    });
   }
 
   $('apply').addEventListener('click', apply);
